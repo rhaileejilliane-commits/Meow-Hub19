@@ -1,0 +1,492 @@
+Local Fluent = loadstring(game:HttpGet("https://github.com/StyearX/Fluent-Modded/releases/download/Fluent/FluentPro"))()
+local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/SaveManager.lua"))()
+local InterfaceManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/InterfaceManager.lua"))()
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local Workspace = game:GetService("Workspace")
+local Lighting = game:GetService("Lighting")
+local Stats = game:GetService("Stats")
+local LocalPlayer = Players.LocalPlayer
+
+local Window = Fluent:CreateWindow({
+    Title = "MeowHUB 3.0",
+    SubTitle = "Supported by CatTBD",
+    TabWidth = 110, -- Reduced from 160 to save horizontal space
+    Size = UDim2.fromOffset(440, 320), -- Made smaller and more compact for mobile screens
+    Acrylic = true,
+    Theme = "Dark",
+    MinimizeKey = Enum.KeyCode.LeftControl,
+    Search = true,
+})
+
+-- Theme configurations
+Fluent.ColorTheme = {
+    Main = Color3.fromRGB(28, 20, 25),
+    Accent = Color3.fromRGB(255, 105, 180),
+    Outline = Color3.fromRGB(120, 10, 60),
+}
+
+local Tabs = {
+    Home = Window:AddTab({ Title = "Home", Icon = "solar/home-bold" }),
+    Combat = Window:AddTab({ Title = "Combat", Icon = "solar/shield-bold" }),
+    Visual = Window:AddTab({ Title = "Visual", Icon = "solar/eye-bold" }),
+    Settings = Window:AddTab({ Title = "Settings", Icon = "solar/settings-bold" })
+}
+
+local Options = Fluent.Options
+
+-- ====================================================================
+-- Home Tab Elements
+-- ====================================================================
+Tabs.Home:AddSection("Information")
+
+Tabs.Home:AddParagraph({
+    Title = "Welcome, " .. LocalPlayer.DisplayName .. "!",
+    Content = "Thank you for executing MeowHUB.\nUsername: @" .. LocalPlayer.Name .. "\nUser ID: " .. LocalPlayer.UserId
+})
+
+-- ====================================================================
+-- Combat Tab Elements
+-- ====================================================================
+Tabs.Combat:AddSection("Movement & Physics")
+
+-- Inf Jump
+local InfJumpEnabled = false
+local InfJumpConnection
+local lastJumpTime = 0
+local jumpCooldown = 0.25
+
+Tabs.Combat:AddToggle("InfJumpToggle", {
+    Title = "Inf Jump",
+    Default = false,
+    Callback = function(Value)
+        InfJumpEnabled = Value
+        if InfJumpEnabled then
+            InfJumpConnection = UserInputService.JumpRequest:Connect(function()
+                if not InfJumpEnabled then return end
+                local currentTime = os.clock()
+                if currentTime - lastJumpTime < jumpCooldown then return end
+                local char = LocalPlayer.Character
+                if char then
+                    local humanoid = char:FindFirstChildOfClass("Humanoid")
+                    local rootPart = char:FindFirstChild("HumanoidRootPart")
+                    if humanoid and rootPart then
+                        lastJumpTime = currentTime
+                        rootPart.AssemblyLinearVelocity = Vector3.new(rootPart.AssemblyLinearVelocity.X, humanoid.JumpPower, rootPart.AssemblyLinearVelocity.Z)
+                        humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+                    end
+                end
+            end)
+        else
+            if InfJumpConnection then
+                InfJumpConnection:Disconnect()
+                InfJumpConnection = nil
+            end
+        end
+    end
+})
+
+-- TPWalk
+local TPWalkEnabled = false
+local TPWalkSpeed = 0.001
+
+Tabs.Combat:AddToggle("TPWalkToggle", {
+    Title = "Enable TPWalk",
+    Default = false,
+    Callback = function(Value)
+        TPWalkEnabled = Value
+    end
+})
+
+Tabs.Combat:AddSlider("TPWalkSlider", {
+    Title = "TPWalk Speed",
+    Description = "Changes your teleport walk speed",
+    Default = 0.001,
+    Min = 0.0001,
+    Max = 0.01,
+    Rounding = 4,
+    Callback = function(Value)
+        TPWalkSpeed = Value
+    end
+})
+
+RunService.RenderStepped:Connect(function()
+    if not TPWalkEnabled then return end
+    local char = LocalPlayer.Character
+    if not char then return end
+    local humanoid = char:FindFirstChildOfClass("Humanoid")
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if humanoid and hrp and humanoid.MoveDirection.Magnitude > 0 then
+        local delta = RunService.RenderStepped:Wait()
+        local moveStep = humanoid.MoveDirection * (TPWalkSpeed * 1000) * (delta * 60)
+        hrp.CFrame = hrp.CFrame + moveStep
+    end
+end)
+
+Tabs.Combat:AddSection("PvP Tools")
+
+-- Hitbox Expander
+local HitboxEnabled = false
+local HitboxSize = 5
+local originalPartSizes = {}
+
+local function isR6(character)
+    return character:FindFirstChild("Torso") ~= nil and character:FindFirstChild("HumanoidRootPart") ~= nil
+end
+
+local function applyHitboxToPlayer(p)
+    if p == LocalPlayer then return end
+    local char = p.Character
+    if not char or not isR6(char) then return end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    local torso = char:FindFirstChild("Torso")
+    if hrp then
+        if not originalPartSizes[hrp] then
+            originalPartSizes[hrp] = {Size = hrp.Size, Transparency = hrp.Transparency, CanCollide = hrp.CanCollide}
+        end
+        hrp.Size = Vector3.new(HitboxSize, HitboxSize, HitboxSize)
+        hrp.Transparency = 1
+        hrp.CanCollide = false
+    end
+    if torso then
+        if not originalPartSizes[torso] then
+            originalPartSizes[torso] = {Size = torso.Size, Transparency = torso.Transparency, CanCollide = torso.CanCollide}
+        end
+        torso.Size = Vector3.new(HitboxSize, HitboxSize, HitboxSize)
+        torso.Transparency = 1
+        torso.CanCollide = false
+    end
+end
+
+local function resetHitboxForPlayer(p)
+    local char = p.Character
+    if not char then return end
+    for _, partName in ipairs({"HumanoidRootPart", "Torso"}) do
+        local part = char:FindFirstChild(partName)
+        if part and originalPartSizes[part] then
+            part.Size = originalPartSizes[part].Size
+            part.Transparency = originalPartSizes[part].Transparency
+            part.CanCollide = originalPartSizes[part].CanCollide
+            originalPartSizes[part] = nil
+        end
+    end
+end
+
+Tabs.Combat:AddToggle("HitboxToggle", {
+    Title = "Enable Hitbox Expander",
+    Default = false,
+    Callback = function(Value)
+        HitboxEnabled = Value
+        for _, p in ipairs(Players:GetPlayers()) do
+            if HitboxEnabled then
+                applyHitboxToPlayer(p)
+            else
+                resetHitboxForPlayer(p)
+            end
+        end
+    end
+})
+
+Tabs.Combat:AddSlider("HitboxSlider", {
+    Title = "Hitbox Size",
+    Default = 5,
+    Min = 1,
+    Max = 12,
+    Rounding = 0,
+    Callback = function(Value)
+        HitboxSize = Value
+        if HitboxEnabled then
+            for _, p in ipairs(Players:GetPlayers()) do
+                applyHitboxToPlayer(p)
+            end
+        end
+    end
+})
+
+RunService.Stepped:Connect(function()
+    if not HitboxEnabled then return end
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer and p.Character then
+            if isR6(p.Character) then
+                applyHitboxToPlayer(p)
+            end
+        end
+    end
+end)
+
+-- Auto Flick System
+local AutoFlickEnabled = false
+local isFlicking = false
+local lastTouchTimes = {}
+
+Tabs.Combat:AddToggle("AutoFlickToggle", {
+    Title = "Auto Flick",
+    Default = false,
+    Callback = function(Value)
+        AutoFlickEnabled = Value
+    end
+})
+
+RunService.Stepped:Connect(function()
+    if not AutoFlickEnabled or isFlicking then return end
+    local char = LocalPlayer.Character
+    if not char then return end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer and p.Character then
+            local pRoot = p.Character:FindFirstChild("HumanoidRootPart")
+            if pRoot then
+                local dist = (hrp.Position - pRoot.Position).Magnitude
+                if dist <= 5 then
+                    local currentTime = os.clock()
+                    if not lastTouchTimes[p] or (currentTime - lastTouchTimes[p] > 1) then
+                        lastTouchTimes[p] = currentTime
+                        isFlicking = true
+                        task.spawn(function()
+                            local spinSpeed = 120
+                            local accLeft = 0
+                            while accLeft < 90 and AutoFlickEnabled do
+                                local dt = RunService.RenderStepped:Wait()
+                                local step = spinSpeed * dt * 60
+                                if accLeft + step > 90 then step = 90 - accLeft end
+                                hrp.CFrame = hrp.CFrame * CFrame.Angles(0, math.rad(step), 0)
+                                accLeft = accLeft + step
+                            end
+                            local accRight = 0
+                            while accRight < 90 and AutoFlickEnabled do
+                                local dt = RunService.RenderStepped:Wait()
+                                local step = spinSpeed * dt * 60
+                                if accRight + step > 90 then step = 90 - accRight end
+                                hrp.CFrame = hrp.CFrame * CFrame.Angles(0, math.rad(-spinSpeed), 0)
+                                accRight = accRight + step
+                            end
+                            isFlicking = false
+                        end)
+                    end
+                end
+            end
+        end
+    end
+end)
+
+-- Auto Wallhop
+local AutoWallhopEnabled = false
+Tabs.Combat:AddToggle("AutoWallhopToggle", {
+    Title = "Auto Wallhop",
+    Default = false,
+    Callback = function(Value)
+        AutoWallhopEnabled = Value
+    end
+})
+
+local function isTouchingWall(hrp)
+    local raycastParams = RaycastParams.new()
+    raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+    raycastParams.FilterDescendantsInstances = {LocalPlayer.Character}
+    raycastParams.IgnoreWater = true
+    local directions = {hrp.CFrame.LookVector, -hrp.CFrame.LookVector, hrp.CFrame.RightVector, -hrp.CFrame.RightVector}
+    for _, dir in ipairs(directions) do
+        local result = Workspace:Raycast(hrp.Position, dir * 2.2, raycastParams)
+        if result and result.Instance and result.Instance.CanCollide and result.Instance.Transparency < 1 then
+            return true
+        end
+    end
+    return false
+end
+
+UserInputService.JumpRequest:Connect(function()
+    if not AutoWallhopEnabled then return end
+    local char = LocalPlayer.Character
+    if not char then return end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    local humanoid = char:FindFirstChildOfClass("Humanoid")
+    if not hrp or not humanoid or not isTouchingWall(hrp) then return end
+    task.spawn(function()
+        local spinSpeed = 90
+        local acc = 0
+        while acc < 90 and AutoWallhopEnabled do
+            local dt = RunService.RenderStepped:Wait()
+            local step = spinSpeed * dt * 60
+            if acc + step > 90 then step = 90 - acc end
+            hrp.CFrame = hrp.CFrame * CFrame.Angles(0, math.rad(step), 0)
+            acc = acc + step
+        end
+        acc = 0
+        while acc < 90 and AutoWallhopEnabled do
+            local dt = RunService.RenderStepped:Wait()
+            local step = spinSpeed * dt * 60
+            if acc + step > 90 then step = 90 - acc end
+            hrp.CFrame = hrp.CFrame * CFrame.Angles(0, math.rad(-step), 0)
+            acc = acc + step
+        end
+    end)
+end)
+
+-- Auto Follow
+local AutoFollowEnabled = false
+Tabs.Combat:AddToggle("AutoFollowToggle", {
+    Title = "Enable Auto Follow & Touch",
+    Default = false,
+    Callback = function(Value)
+        AutoFollowEnabled = Value
+    end
+})
+
+RunService.RenderStepped:Connect(function()
+    if not AutoFollowEnabled then return end
+    local char = LocalPlayer.Character
+    if not char then return end
+    local humanoid = char:FindFirstChildOfClass("Humanoid")
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not humanoid or not hrp or humanoid.MoveDirection.Magnitude > 0.05 then return end
+
+    local targetPlr = nil
+    local shortestDist = math.huge
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+            local dist = (hrp.Position - p.Character.HumanoidRootPart.Position).Magnitude
+            if dist < shortestDist then
+                shortestDist = dist
+                targetPlr = p
+            end
+        end
+    end
+
+    if targetPlr and targetPlr.Character then
+        local targetHrp = targetPlr.Character:FindFirstChild("HumanoidRootPart")
+        if targetHrp then
+            humanoid:MoveTo(targetHrp.Position)
+        end
+    end
+end)
+
+-- ====================================================================
+-- Visual Tab Elements
+-- ====================================================================
+Tabs.Visual:AddSection("Visuals & Performance")
+
+-- ESP
+local ESPEnabled = false
+local ESPFolder = Instance.new("Folder")
+ESPFolder.Name = "FluentESPFolder"
+ESPFolder.Parent = game:GetService("CoreGui")
+local activeHighlights = {}
+
+local function createESP(character)
+    if activeHighlights[character] then return end
+    local highlight = Instance.new("Highlight")
+    highlight.Adornee = character
+    highlight.FillColor = Color3.fromRGB(255, 105, 180)
+    highlight.FillTransparency = 0.5
+    highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+    highlight.Parent = ESPFolder
+    activeHighlights[character] = highlight
+end
+
+local function removeESP(character)
+    if activeHighlights[character] then
+        activeHighlights[character]:Destroy()
+        activeHighlights[character] = nil
+    end
+end
+
+Tabs.Visual:AddToggle("ESPToggle", {
+    Title = "Enable ESP",
+    Default = false,
+    Callback = function(Value)
+        ESPEnabled = Value
+        if ESPEnabled then
+            for _, p in ipairs(Players:GetPlayers()) do
+                if p ~= LocalPlayer and p.Character then
+                    createESP(p.Character)
+                end
+            end
+        else
+            for char, _ in pairs(activeHighlights) do
+                removeESP(char)
+            end
+        end
+    end
+})
+
+Players.PlayerAdded:Connect(function(player)
+    player.CharacterAdded:Connect(function(char)
+        if ESPEnabled then createESP(char) end
+    end)
+    player.CharacterRemoving:Connect(function(char)
+        removeESP(char)
+    end)
+end)
+
+-- FPS Booster
+local FPSBoosterEnabled = false
+local storedProperties = {}
+
+Tabs.Visual:AddToggle("FPSBoosterToggle", {
+    Title = "Enable FPS Booster",
+    Default = false,
+    Callback = function(Value)
+        FPSBoosterEnabled = Value
+        if FPSBoosterEnabled then
+            for _, obj in ipairs(Workspace:GetDescendants()) do
+                if obj:IsA("Decal") or obj:IsA("Texture") then
+                    storedProperties[obj] = obj.Transparency
+                    obj.Transparency = 1
+                elseif obj:IsA("SpecialMesh") then
+                    storedProperties[obj] = obj.TextureId
+                    obj.TextureId = ""
+                elseif obj:IsA("BillboardGui") or obj:IsA("SurfaceGui") then
+                    storedProperties[obj] = obj.Enabled
+                    obj.Enabled = false
+                end
+            end
+            storedProperties["Ambient"] = Lighting.Ambient
+            Lighting.Ambient = Color3.fromRGB(80, 60, 75)
+        else
+            for obj, prop in pairs(storedProperties) do
+                if typeof(obj) == "Instance" and obj.Parent then
+                    if obj:IsA("Decal") or obj:IsA("Texture") then
+                        obj.Transparency = prop
+                    elseif obj:IsA("SpecialMesh") then
+                        obj.TextureId = prop
+                    elseif obj:IsA("BillboardGui") or obj:IsA("SurfaceGui") then
+                        obj.Enabled = prop
+                    end
+                end
+            end
+            if storedProperties["Ambient"] then
+                Lighting.Ambient = storedProperties["Ambient"]
+            end
+            storedProperties = {}
+        end
+    end
+})
+
+-- ====================================================================
+-- Settings Tab & Managers Setup
+-- ====================================================================
+SaveManager:SetLibrary(Fluent)
+InterfaceManager:SetLibrary(Fluent)
+
+SaveManager:IgnoreThemeSettings()
+SaveManager:SetIgnoreIndexes({})
+
+InterfaceManager:SetFolder("MeowHUB")
+SaveManager:SetFolder("MeowHUB/settings")
+
+InterfaceManager:BuildInterfaceSection(Tabs.Settings)
+SaveManager:BuildConfigSection(Tabs.Settings)
+
+Window:SelectTab(1)
+
+Fluent:Notify({
+    Title = "MeowHUB",
+    Content = "The script has been loaded successfully!",
+    Duration = 5
+})
+
+SaveManager:LoadAutoloadConfig()
